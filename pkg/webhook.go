@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"io"
 	admissionv1 "k8s.io/api/admission/v1"
-	v1 "k8s.io/api/core/v1"
+	"k8s.io/api/apps/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
@@ -106,10 +106,10 @@ func (s *WebhookServer) mutate(ar *admissionv1.AdmissionReview) *admissionv1.Adm
 
 	// 序列化相应的对象
 	switch req.Kind.Kind {
-	case "Pod":
+	case "deployment":
 		// 实例化Pod对象
-		var pod v1.Pod
-		if err := json.Unmarshal(req.Object.Raw,&pod);
+		var  deployment v1beta1.Deployment
+		if err := json.Unmarshal(req.Object.Raw,&deployment);
 		err != nil {
 			klog.Errorf("Can't not unmarshal raw object: %v", err)
 			return &admissionv1.AdmissionResponse{
@@ -119,9 +119,9 @@ func (s *WebhookServer) mutate(ar *admissionv1.AdmissionReview) *admissionv1.Adm
 				},
 			}
 		}
-		op := pod.Spec.Containers
+		op := deployment.Spec.Template.Spec.Containers
 		klog.Info(op)
-		objectMeta = &pod.ObjectMeta
+		objectMeta = &deployment.ObjectMeta
 	default:
 		return &admissionv1.AdmissionResponse{
 			Result: &metav1.Status{
@@ -171,6 +171,7 @@ func (s *WebhookServer) mutate(ar *admissionv1.AdmissionReview) *admissionv1.Adm
 func mutationRequired(metadata *metav1.ObjectMeta) bool {
 	// 获取注解赋给变量
 	annotations := metadata.GetAnnotations()
+	klog.Infof("注解打印 %s",annotations)
 	// 判断注解是否为空
 	if annotations == nil {
 		annotations = map[string]string{}
