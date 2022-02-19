@@ -37,6 +37,7 @@ func (s *WebhookServer) Handler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+
 	// 判断body长度是否0
 	if len(body) == 0 {
 		http.Error(w, "no body found", http.StatusBadRequest)
@@ -62,7 +63,7 @@ func (s *WebhookServer) Handler(w http.ResponseWriter, r *http.Request) {
 	} else {
 		// 序列化成功，也就是说获取到了请求的 AdmissionReview 的数据
 		if r.URL.Path == "/mutate" {
-			klog.Infof("已拿到数据 %s",&requestedAdmissionReview)
+			klog.Infof("已拿到数据 %s",requestedAdmissionReview)
 			admissionResponse = s.mutate(&requestedAdmissionReview)
 		}
 	}
