@@ -78,7 +78,6 @@ func (s *WebhookServer) Handler(w http.ResponseWriter, r *http.Request) {
 	} else {
 		// 序列化成功，也就是说获取到了请求的 AdmissionReview 的数据
 		if r.URL.Path == "/mutate" {
-			klog.Infof("已拿到数据")
 			admissionResponse = s.mutate(&requestedAdmissionReview)
 		}
 	}
@@ -106,7 +105,7 @@ func (s *WebhookServer) mutate(ar *admissionv1.AdmissionReview) *admissionv1.Adm
 
 	// 序列化相应的对象
 	switch req.Kind.Kind {
-	case "deployment":
+	case "Deployment":
 		// 实例化Pod对象
 		var  deployment v1beta1.Deployment
 		if err := json.Unmarshal(req.Object.Raw,&deployment);
@@ -119,8 +118,6 @@ func (s *WebhookServer) mutate(ar *admissionv1.AdmissionReview) *admissionv1.Adm
 				},
 			}
 		}
-		op := deployment.Spec.Template.Spec.Containers
-		klog.Info(op)
 		objectMeta = &deployment.ObjectMeta
 	default:
 		return &admissionv1.AdmissionResponse{
@@ -143,7 +140,7 @@ func (s *WebhookServer) mutate(ar *admissionv1.AdmissionReview) *admissionv1.Adm
 		AnnotationStatusKey: "mutated",
 	}
 	var patch []patchOperation
-	patch = append(patch, mutateAnnotations(objectMeta.GetAnnotations(), annotations)...)
+	patch = append(patch, mutateAnnotations(objectMeta.GetLabels(), annotations)...)
 
 	patchBytes, err := json.Marshal(patch)
 	if err != nil {
@@ -198,23 +195,24 @@ func mutationRequired(metadata *metav1.ObjectMeta) bool {
 
 // 修改操作
 func mutateAnnotations(target map[string]string, added map[string]string) (patch []patchOperation) {
-	for key, value := range added {
-		if target == nil || target[key] == "" {
-			target = map[string]string{}
-			patch = append(patch, patchOperation{
-				Op:   "add",
-				Path: "/metadata/annotations",
-				Value: map[string]string{
-					key: value,
-				},
-			})
-		} else {
-			patch = append(patch, patchOperation{
-				Op:    "replace",
-				Path:  "/metadata/annotations/" + key,
-				Value: value,
-			})
-		}
-	}
+	klog.Info(target)
+	//for key, value := range added {
+	//	if target == nil || target[key] == "" {
+	//		target = map[string]string{}
+	//		patch = append(patch, patchOperation{
+	//			Op:   "add",
+	//			Path: "/metadata/annotations",
+	//			Value: map[string]string{
+	//				key: value,
+	//			},
+	//		})
+	//	} else {
+	//		patch = append(patch, patchOperation{
+	//			Op:    "replace",
+	//			Path:  "/metadata/annotations/" + key,
+	//			Value: value,
+	//		})
+	//	}
+	//}
 	return
 }
