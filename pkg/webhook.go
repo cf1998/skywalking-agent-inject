@@ -183,7 +183,7 @@ func mutationRequired(metadata *metav1.ObjectMeta) bool {
 	case "enabled":
 		required = true
 	default:
-		required = true
+		required = false
 	}
 
 	//status := annotations[AnnotationStatusKey]
