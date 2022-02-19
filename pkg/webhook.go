@@ -1,13 +1,17 @@
 package pkg
 
 import (
+	"fmt"
 	"io"
 	admissionv1 "k8s.io/api/admission/v1"
+	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
+	"k8s.io/apimachinery/pkg/util/json"
 	"k8s.io/klog"
 	"net/http"
+	"strings"
 )
 
 var (
@@ -15,6 +19,17 @@ var (
 	codeFactory   = serializer.NewCodecFactory(runtimeScheme)
 	deserializer  = codeFactory.UniversalDeserializer()
 )
+
+const (
+	AnnotationMutateKey = "io.ydzs.admission-registry/mutate" // io.ydzs.admission-registry/mutate=no/off/false/n
+	AnnotationStatusKey = "io.ydzs.admission-registry/status" // io.ydzs.admission-registry/status=mutated
+)
+
+type patchOperation struct {
+	Op    string      `json:"op"`
+	Path  string      `json:"path"`
+	Value interface{} `json:"value,omitempty"`
+}
 
 
 type WhSvrParam struct {
@@ -63,11 +78,11 @@ func (s *WebhookServer) Handler(w http.ResponseWriter, r *http.Request) {
 	} else {
 		// 序列化成功，也就是说获取到了请求的 AdmissionReview 的数据
 		if r.URL.Path == "/mutate" {
-			klog.Infof("已拿到数据 %s",requestedAdmissionReview)
+			klog.Infof("已拿到数据")
 			admissionResponse = s.mutate(&requestedAdmissionReview)
 		}
 	}
-	// 构造返回的 AdmissionReview 这个结构体
+	// 数据序列化（validate、mutate）请求的数据都是 AdmissionReview
 	responseAdmissionReview := admissionv1.AdmissionReview{}
 	// admission/v1
 	responseAdmissionReview.APIVersion = requestedAdmissionReview.APIVersion
@@ -82,7 +97,122 @@ func (s *WebhookServer) Handler(w http.ResponseWriter, r *http.Request) {
 
 func (s *WebhookServer) mutate(ar *admissionv1.AdmissionReview) *admissionv1.AdmissionResponse {
 	req := ar.Request
+
+	var (
+		objectMeta *metav1.ObjectMeta
+	)
 	klog.Infof("AdmissionReview for Kind=%s, Namespace=%s Name=%s UID=%s",
 		req.Kind.Kind, req.Namespace, req.Name, req.UID)
-	return nil
+
+	// 序列化相应的对象
+	switch req.Kind.Kind {
+	case "Pod":
+		// 实例化Pod对象
+		var pod v1.Pod
+		if err := json.Unmarshal(req.Object.Raw,&pod);
+		err != nil {
+			klog.Errorf("Can't not unmarshal raw object: %v", err)
+			return &admissionv1.AdmissionResponse{
+				Result: &metav1.Status{
+					Code:    http.StatusBadRequest,
+					Message: err.Error(),
+				},
+			}
+		}
+		objectMeta = &pod.ObjectMeta
+	default:
+		return &admissionv1.AdmissionResponse{
+			Result: &metav1.Status{
+				Code:    http.StatusBadRequest,
+				Message: fmt.Sprintf("Can't handle the kind(%s) object", req.Kind.Kind),
+			},
+		}
+	}
+
+	// 判断是否需要真的执行 mutate 操作
+	if !mutationRequired(objectMeta) {
+		return &admissionv1.AdmissionResponse{
+			Allowed: true,
+		}
+	}
+
+	// 需要执行 mutate 操作
+	annotations := map[string]string{
+		AnnotationStatusKey: "mutated",
+	}
+	var patch []patchOperation
+	patch = append(patch, mutateAnnotations(objectMeta.GetAnnotations(), annotations)...)
+
+	patchBytes, err := json.Marshal(patch)
+	if err != nil {
+		klog.Errorf("patch marshal error: %v", err)
+		return &admissionv1.AdmissionResponse{
+			Result: &metav1.Status{
+				Code:    http.StatusBadRequest,
+				Message: err.Error(),
+			},
+		}
+	}
+
+	return &admissionv1.AdmissionResponse{
+		Allowed: true,
+		Patch:   patchBytes,
+		PatchType: func() *admissionv1.PatchType {
+			pt := admissionv1.PatchTypeJSONPatch
+			return &pt
+		}(),
+	}
+}
+
+
+// 判断是否需要执行mutation操作
+func mutationRequired(metadata *metav1.ObjectMeta) bool {
+	// 获取注解赋给变量
+	annotations := metadata.GetAnnotations()
+	// 判断注解是否为空
+	if annotations == nil {
+		annotations = map[string]string{}
+	}
+
+	var required bool
+
+	// 判断注解
+	switch strings.ToLower(annotations[AnnotationMutateKey]) {
+	case "n", "no", "false", "off":
+		required = false
+	default:
+		required = true
+	}
+
+	status := annotations[AnnotationStatusKey]
+	if strings.ToLower(status) == "mutated" {
+		required = false
+	}
+
+	klog.Infof("Mutation policy for %s/%s: required: %v", metadata.Name, metadata.Namespace, required)
+
+	return required
+}
+
+// 修改操作
+func mutateAnnotations(target map[string]string, added map[string]string) (patch []patchOperation) {
+	for key, value := range added {
+		if target == nil || target[key] == "" {
+			target = map[string]string{}
+			patch = append(patch, patchOperation{
+				Op:   "add",
+				Path: "/metadata/annotations",
+				Value: map[string]string{
+					key: value,
+				},
+			})
+		} else {
+			patch = append(patch, patchOperation{
+				Op:    "replace",
+				Path:  "/metadata/annotations/" + key,
+				Value: value,
+			})
+		}
+	}
+	return
 }
