@@ -21,7 +21,7 @@ var (
 )
 
 const (
-	AnnotationMutateKey = "io.ydzs.admission-registry/mutate" // io.ydzs.admission-registry/mutate=no/off/false/n
+	AnnotationMutateKey = "skywalking-agent-injection" // io.ydzs.admission-registry/mutate=no/off/false/n
 	AnnotationStatusKey = "io.ydzs.admission-registry/status" // io.ydzs.admission-registry/status=mutated
 )
 
@@ -180,19 +180,18 @@ func mutationRequired(metadata *metav1.ObjectMeta) bool {
 
 	// 判断注解
 	switch strings.ToLower(annotations[AnnotationMutateKey]) {
-	case "n", "no", "false", "off":
-		required = false
+	case "enabled":
+		required = true
 	default:
 		required = true
 	}
 
-	status := annotations[AnnotationStatusKey]
-	if strings.ToLower(status) == "mutated" {
-		required = false
-	}
-
+	//status := annotations[AnnotationStatusKey]
+	//if strings.ToLower(status) == "mutated" {
+	//	required = false
+	//}
+	//
 	klog.Infof("Mutation policy for %s/%s: required: %v", metadata.Name, metadata.Namespace, required)
-
 	return required
 }
 
