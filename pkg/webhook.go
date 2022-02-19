@@ -119,6 +119,8 @@ func (s *WebhookServer) mutate(ar *admissionv1.AdmissionReview) *admissionv1.Adm
 				},
 			}
 		}
+		op := pod.Spec.Containers
+		klog.Info(op)
 		objectMeta = &pod.ObjectMeta
 	default:
 		return &admissionv1.AdmissionResponse{
