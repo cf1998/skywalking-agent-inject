@@ -99,6 +99,7 @@ func (s *WebhookServer) mutate(ar *admissionv1.AdmissionReview) *admissionv1.Adm
 
 	var (
 		objectMeta *metav1.ObjectMeta
+		deployment v1beta1.Deployment
 	)
 	klog.Infof("AdmissionReview for Kind=%s, Namespace=%s Name=%s UID=%s",
 		req.Kind.Kind, req.Namespace, req.Name, req.UID)
@@ -107,7 +108,6 @@ func (s *WebhookServer) mutate(ar *admissionv1.AdmissionReview) *admissionv1.Adm
 	switch req.Kind.Kind {
 	case "Deployment":
 		// 实例化Pod对象
-		var  deployment v1beta1.Deployment
 		if err := json.Unmarshal(req.Object.Raw,&deployment);
 		err != nil {
 			klog.Errorf("Can't not unmarshal raw object: %v", err)
@@ -119,6 +119,7 @@ func (s *WebhookServer) mutate(ar *admissionv1.AdmissionReview) *admissionv1.Adm
 			}
 		}
 		objectMeta = &deployment.ObjectMeta
+
 	default:
 		return &admissionv1.AdmissionResponse{
 			Result: &metav1.Status{
@@ -136,11 +137,11 @@ func (s *WebhookServer) mutate(ar *admissionv1.AdmissionReview) *admissionv1.Adm
 	}
 
 	// 需要执行 mutate 操作
-	annotations := map[string]string{
-		AnnotationStatusKey: "mutated",
-	}
+	//annotations := map[string]string{
+	//	AnnotationStatusKey: "mutated",
+	//}
 	var patch []patchOperation
-	patch = append(patch, mutateAnnotations(objectMeta.GetLabels(), annotations)...)
+	patch = append(patch, mutateAnnotations(deployment)...)
 
 	patchBytes, err := json.Marshal(patch)
 	if err != nil {
@@ -167,8 +168,7 @@ func (s *WebhookServer) mutate(ar *admissionv1.AdmissionReview) *admissionv1.Adm
 // 判断是否需要执行mutation操作
 func mutationRequired(metadata *metav1.ObjectMeta) bool {
 	// 获取注解赋给变量
-	annotations := metadata.GetAnnotations()
-	klog.Infof("注解打印 %s",annotations)
+	annotations := metadata.GetLabels()
 	// 判断注解是否为空
 	if annotations == nil {
 		annotations = map[string]string{}
@@ -183,19 +183,29 @@ func mutationRequired(metadata *metav1.ObjectMeta) bool {
 	default:
 		required = false
 	}
-
-	//status := annotations[AnnotationStatusKey]
-	//if strings.ToLower(status) == "mutated" {
-	//	required = false
-	//}
-	//
 	klog.Infof("Mutation policy for %s/%s: required: %v", metadata.Name, metadata.Namespace, required)
 	return required
 }
 
 // 修改操作
-func mutateAnnotations(target map[string]string, added map[string]string) (patch []patchOperation) {
-	klog.Info(target)
+func mutateAnnotations(target v1beta1.Deployment) (patch []patchOperation) {
+	klog.Info("获取变量")
+	for i := range target.Spec.Template.Spec.Containers{
+		for i := range target.Spec.Template.Spec.Containers[i].Env{
+			if target.Spec.Template.Spec.Containers[i].Env[i].Name == "JAVA_OPTS"{
+				klog.Info("已获取到java变量")
+				klog.Info(target.Spec.Template.Spec.Containers[i].Env[i].Value)
+				key := target.Spec.Template.Spec.Containers[i].Env[i].Name
+				Env := target.Spec.Template.Spec.Containers[i].Env[i].Value
+				Env = Env + " -javaagent:/usr/agent/skywalking-agent.jar -Dskywalking.agent.namespace=uat -Dskywalking.agent.service_name=fp-android-transit-job -Dskywalking.collector.backend_service=10.0.54.104:5006"
+				patch = append(patch, patchOperation{
+					Op: "replace",
+					Path: "/spec/template/spec/containers/env/" + key,
+					Value: Env,
+				})
+			}
+		}
+	}
 	//for key, value := range added {
 	//	if target == nil || target[key] == "" {
 	//		target = map[string]string{}
@@ -214,5 +224,6 @@ func mutateAnnotations(target map[string]string, added map[string]string) (patch
 	//		})
 	//	}
 	//}
+
 	return
 }
