@@ -21,7 +21,7 @@ var (
 )
 
 const (
-	AnnotationMutateKey = "skywalking-agent-injection" // io.ydzs.admission-registry/mutate=no/off/false/n
+	AnnotationMutateKey = "skywalking-agent-injection"        // io.ydzs.admission-registry/mutate=no/off/false/n
 	AnnotationStatusKey = "io.ydzs.admission-registry/status" // io.ydzs.admission-registry/status=mutated
 )
 
@@ -30,7 +30,6 @@ type patchOperation struct {
 	Path  string      `json:"path"`
 	Value interface{} `json:"value,omitempty"`
 }
-
 
 type WhSvrParam struct {
 	Port     int
@@ -51,7 +50,6 @@ func (s *WebhookServer) Handler(w http.ResponseWriter, r *http.Request) {
 			body = data
 		}
 	}
-
 
 	// 判断body长度是否0
 	if len(body) == 0 {
@@ -79,6 +77,7 @@ func (s *WebhookServer) Handler(w http.ResponseWriter, r *http.Request) {
 		// 序列化成功，也就是说获取到了请求的 AdmissionReview 的数据
 		if r.URL.Path == "/mutate" {
 			admissionResponse = s.mutate(&requestedAdmissionReview)
+			klog.Info(admissionResponse)
 		}
 	}
 	// 数据序列化（validate、mutate）请求的数据都是 AdmissionReview
@@ -91,8 +90,22 @@ func (s *WebhookServer) Handler(w http.ResponseWriter, r *http.Request) {
 		if requestedAdmissionReview.Request != nil { // 返回相同的 UID
 			responseAdmissionReview.Response.UID = requestedAdmissionReview.Request.UID
 		}
-}}
+	}
+	klog.Info(fmt.Sprintf("sending response: %v", responseAdmissionReview.Response))
+	// send response
+	respBytes, err := json.Marshal(responseAdmissionReview)
+	if err != nil {
+		klog.Errorf("Can't encode response: %v", err)
+		http.Error(w, fmt.Sprintf("Can't encode response: %v", err), http.StatusBadRequest)
+		return
+	}
+	klog.Info("Ready to write response...")
 
+	if _, err := w.Write(respBytes); err != nil {
+		klog.Errorf("Can't write response: %v", err)
+		http.Error(w, fmt.Sprintf("Can't write reponse: %v", err), http.StatusBadRequest)
+	}
+}
 
 func (s *WebhookServer) mutate(ar *admissionv1.AdmissionReview) *admissionv1.AdmissionResponse {
 	req := ar.Request
@@ -108,8 +121,7 @@ func (s *WebhookServer) mutate(ar *admissionv1.AdmissionReview) *admissionv1.Adm
 	switch req.Kind.Kind {
 	case "Deployment":
 		// 实例化Pod对象
-		if err := json.Unmarshal(req.Object.Raw,&deployment);
-		err != nil {
+		if err := json.Unmarshal(req.Object.Raw, &deployment); err != nil {
 			klog.Errorf("Can't not unmarshal raw object: %v", err)
 			return &admissionv1.AdmissionResponse{
 				Result: &metav1.Status{
@@ -142,7 +154,6 @@ func (s *WebhookServer) mutate(ar *admissionv1.AdmissionReview) *admissionv1.Adm
 	//}
 	var patch []patchOperation
 	patch = append(patch, mutateAnnotations(deployment)...)
-
 	patchBytes, err := json.Marshal(patch)
 	if err != nil {
 		klog.Errorf("patch marshal error: %v", err)
@@ -153,7 +164,6 @@ func (s *WebhookServer) mutate(ar *admissionv1.AdmissionReview) *admissionv1.Adm
 			},
 		}
 	}
-
 	return &admissionv1.AdmissionResponse{
 		Allowed: true,
 		Patch:   patchBytes,
@@ -163,7 +173,6 @@ func (s *WebhookServer) mutate(ar *admissionv1.AdmissionReview) *admissionv1.Adm
 		}(),
 	}
 }
-
 
 // 判断是否需要执行mutation操作
 func mutationRequired(metadata *metav1.ObjectMeta) bool {
@@ -190,40 +199,21 @@ func mutationRequired(metadata *metav1.ObjectMeta) bool {
 // 修改操作
 func mutateAnnotations(target v1beta1.Deployment) (patch []patchOperation) {
 	klog.Info("获取变量")
-	for i := range target.Spec.Template.Spec.Containers{
-		for i := range target.Spec.Template.Spec.Containers[i].Env{
-			if target.Spec.Template.Spec.Containers[i].Env[i].Name == "JAVA_OPTS"{
+	for i := range target.Spec.Template.Spec.Containers {
+		for i := range target.Spec.Template.Spec.Containers[i].Env {
+			if target.Spec.Template.Spec.Containers[i].Env[i].Name == "JAVA_OPTS" {
 				klog.Info("已获取到java变量")
-				klog.Info(target.Spec.Template.Spec.Containers[i].Env[i].Value)
 				key := target.Spec.Template.Spec.Containers[i].Env[i].Name
 				Env := target.Spec.Template.Spec.Containers[i].Env[i].Value
 				Env = Env + " -javaagent:/usr/agent/skywalking-agent.jar -Dskywalking.agent.namespace=uat -Dskywalking.agent.service_name=fp-android-transit-job -Dskywalking.collector.backend_service=10.0.54.104:5006"
 				patch = append(patch, patchOperation{
-					Op: "replace",
-					Path: "/spec/template/spec/containers/env/" + key,
+					Op:    "replace",
+					Path:  "/spec/template/spec/containers/0/env/0/value" + key,
 					Value: Env,
 				})
+				klog.Info(Env)
 			}
 		}
 	}
-	//for key, value := range added {
-	//	if target == nil || target[key] == "" {
-	//		target = map[string]string{}
-	//		patch = append(patch, patchOperation{
-	//			Op:   "add",
-	//			Path: "/metadata/annotations",
-	//			Value: map[string]string{
-	//				key: value,
-	//			},
-	//		})
-	//	} else {
-	//		patch = append(patch, patchOperation{
-	//			Op:    "replace",
-	//			Path:  "/metadata/annotations/" + key,
-	//			Value: value,
-	//		})
-	//	}
-	//}
-
 	return
 }
